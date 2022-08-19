@@ -3,6 +3,7 @@ module proj1
 go 1.19
 
 require (
+	github.com/Clinet/discordgo-embed v0.0.0-20220113222025-bafe0c917646 // indirect
 	github.com/PuerkitoBio/goquery v1.8.0 // indirect
 	github.com/andybalholm/cascadia v1.3.1 // indirect
 	github.com/antchfx/htmlquery v1.2.5 // indirect
