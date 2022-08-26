@@ -1,13 +1,19 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/Clinet/discordgo-embed"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/bwmarrin/discordgo"
 	"gopkg.in/headzoo/surf.v1"
+	"io"
+	"io/ioutil"
+	"log"
+	"net/http"
 	"strconv"
+	"strings"
 )
 
 var (
@@ -19,7 +25,6 @@ func init() {
 	flag.StringVar(&Token, "t", "", "Bot Token")
 	flag.Parse()
 }
-
 func main() {
 	Token = "OTg4NTg3NzE1Mzc1MjcxOTY2.Gu1GuW.sDtRY6L_ewDUsiqKZnPRdvbCFdqtMh-RFVEHaU"
 
@@ -35,16 +40,56 @@ func main() {
 		fmt.Println("error opening connection,", err)
 		return
 	}
+
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
 	<-make(chan struct{})
 	dg.Close()
 }
+
+/*func kitsu() {
+	type AnimeInfo struct {
+		0 struct {
+			Title string
+		}
+		1 struct {
+
+		}
+		2 struct {
+
+		}
+
+	}
+
+	res, err := http.Get("https://kitsu.io/api/edge/anime?filter[text]=cowboy%20bebop")
+	if err != nil {
+		fmt.Println(err)
+		panic(err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(res.Body)
+	body, readErr := ioutil.ReadAll(res.Body)
+	if readErr != nil {
+		fmt.Println("Error 4")
+		log.Fatal(readErr)
+	}
+	var anime AnimeInfo
+	jsonErr := json.Unmarshal(body, &anime)
+	if jsonErr != nil {
+		fmt.Println("Error 5")
+		log.Fatal(jsonErr)
+	}
+}*/
 
 var channel = make(chan int)
 var requestchannel = make(chan int)
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	fmt.Println(m.Content)
+	isanime := false
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
@@ -55,7 +100,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSend(m.ChannelID, "im happy !")
 	}
 	if m.Content[0:1] == "." {
-		m.Content = m.Content[1:]
+
+		if m.Content[0:2] == ".a" {
+			m.Content = m.Content[2:]
+			isanime = true
+		} else {
+			m.Content = m.Content[1:]
+		}
 	} else {
 		return
 	}
@@ -69,7 +120,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				channel <- u
 			} else {
 				channel <- -1 //Signals to cancel the operation
-				go mainroute(s, m)
+				if isanime == true {
+					go animeroute(s, m)
+				} else {
+					go x1337route(s, m)
+				}
+
 			}
 		}
 	default:
@@ -78,14 +134,16 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			s.ChannelMessageSend(m.ChannelID, "There is nothing to choose from")
 			return
 		} else {
-			go mainroute(s, m)
+			if isanime == true {
+				go animeroute(s, m)
+			} else {
+				go x1337route(s, m)
+			}
+
 		}
 	}
 }
-
-//TODO add anime compatibility (GET BOWEN)
-
-func mainroute(s *discordgo.Session, m *discordgo.MessageCreate) {
+func x1337route(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	s.ChannelMessageSend(m.ChannelID, "Ok I will find this thing's magnet link")
 	bow := surf.NewBrowser()
@@ -147,6 +205,65 @@ func mainroute(s *discordgo.Session, m *discordgo.MessageCreate) {
 			fmt.Println("error sending DM message:", err)
 			s.ChannelMessageSend(m.ChannelID, "Failed to send you a DM. "+"Did you disable DM in your privacy settings?")
 		}
+	}
+
+}
+func animeroute(s *discordgo.Session, m *discordgo.MessageCreate) {
+
+	var content string
+	for count := 0; len(m.Content) > count; count++ {
+		if m.Content[count] == ' ' {
+			if count == 0 {
+			} else {
+				content = content + string('-')
+			}
+		} else {
+			content = content + string(m.Content[count])
+		}
+	}
+
+	var episode string
+	if strings.Contains(m.Content, "episode") {
+		var episodeindex int = strings.Index(m.Content, "episode")
+		episode = m.Content[episodeindex:]
+		fmt.Println(episode)
+	}
+
+	//client := &http.Client{}
+
+	type Anime struct {
+		Referer string
+	}
+
+	url := fmt.Sprintf("http://localhost:3000/gogoanime/watch/%s", content)
+	//fmt.Println(url)
+	res, err := http.Get(url)
+	if err != nil {
+
+		s.ChannelMessageSend(m.ChannelID, "Message Addison 'Error 1'")
+		fmt.Println(err)
+		panic(err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(res.Body)
+	body, readErr := ioutil.ReadAll(res.Body)
+	if readErr != nil {
+		fmt.Println("Error 4")
+		log.Fatal(readErr)
+	}
+	var anime Anime
+	jsonErr := json.Unmarshal(body, &anime)
+	if jsonErr != nil {
+		fmt.Println("Error 5")
+		log.Fatal(jsonErr)
+	}
+	_, err = s.ChannelMessageSend(m.ChannelID, anime.Referer)
+	if err != nil {
+		return
 	}
 
 }
