@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/Clinet/discordgo-embed"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/bwmarrin/discordgo"
+	"github.com/nstratos/go-myanimelist/mal"
 	"gopkg.in/headzoo/surf.v1"
 	"io"
 	"io/ioutil"
@@ -26,9 +28,16 @@ func init() {
 	flag.Parse()
 }
 func main() {
-	Token = "OTg4NTg3NzE1Mzc1MjcxOTY2.Gu1GuW.sDtRY6L_ewDUsiqKZnPRdvbCFdqtMh-RFVEHaU"
+	Token = "" //TODO Remove this
 
 	dg, err := discordgo.New("Bot " + Token)
+	defer func(dg *discordgo.Session) {
+		err := dg.Close()
+		if err != nil {
+
+			panic(err)
+		}
+	}(dg) //Close the session when the main function ends
 	if err != nil {
 		fmt.Println("error creating Discord session,", err)
 		return
@@ -42,113 +51,120 @@ func main() {
 	}
 
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
-	<-make(chan struct{})
-	dg.Close()
+	<-make(chan struct{}) // Stall the bot until CTRL-C is pressed
 }
-
-/*func kitsu() {
-	type AnimeInfo struct {
-		0 struct {
-			Title string
-		}
-		1 struct {
-
-		}
-		2 struct {
-
-		}
-
-	}
-
-	res, err := http.Get("https://kitsu.io/api/edge/anime?filter[text]=cowboy%20bebop")
-	if err != nil {
-		fmt.Println(err)
-		panic(err)
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(res.Body)
-	body, readErr := ioutil.ReadAll(res.Body)
-	if readErr != nil {
-		fmt.Println("Error 4")
-		log.Fatal(readErr)
-	}
-	var anime AnimeInfo
-	jsonErr := json.Unmarshal(body, &anime)
-	if jsonErr != nil {
-		fmt.Println("Error 5")
-		log.Fatal(jsonErr)
-	}
-}*/
 
 var channel = make(chan int)
 var requestchannel = make(chan int)
 
+type clientIDTransport struct {
+	Transport http.RoundTripper
+	ClientID  string
+}
+
+func (c *clientIDTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if c.Transport == nil {
+		c.Transport = http.DefaultTransport
+	}
+	req.Header.Add("X-MAL-CLIENT-ID", c.ClientID)
+	return c.Transport.RoundTrip(req)
+}
+func fetchmal(content string) [3][2]string {
+	publicInfoClient := &http.Client{
+		// Create client ID from https://myanimelist.net/apiconfig.
+		Transport: &clientIDTransport{ClientID: "6191b239cf01f8a3f46d24fd8760c899"},
+	}
+	ctx := context.Background()
+	c := mal.NewClient(publicInfoClient)
+	anime, _, _ := c.Anime.List(ctx, content, mal.Limit(3))
+	var results [3][2]string
+	for b, a := range anime {
+		for i := 0; i < 2; i++ {
+			if i == 0 {
+				results[b][i] = a.Title
+			} else if i == 1 {
+				results[b][i] = string(rune(a.ID))
+			}
+		}
+	}
+	return results
+}
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	fmt.Println(m.Content)
 	isanime := false
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
-	if m.Content == "Fucking cunt" {
-		s.ChannelMessageSend(m.ChannelID, "im sad")
-	}
-	if m.Content == "Good bot" {
-		s.ChannelMessageSend(m.ChannelID, "im happy !")
-	}
-	if m.Content[0:1] == "." {
-
-		if m.Content[0:2] == ".a" {
-			m.Content = m.Content[2:]
-			isanime = true
-		} else {
-			m.Content = m.Content[1:]
+	if strings.ToLower(m.Content) == "fucking terrible bot" {
+		_, err := s.ChannelMessageSend(m.ChannelID, "im sad")
+		if err != nil {
+			return
 		}
-	} else {
-		return
+	}
+	if strings.ToLower(m.Content) == "good bot" {
+		_, err := s.ChannelMessageSend(m.ChannelID, "im happy !")
+		if err != nil {
+			return
+		}
 	}
 
 	select {
 	case bin := <-requestchannel:
 		//We have request
 		if bin == -1 {
-			if m.Content == "0" || m.Content == "1" || m.Content == "2" {
+			if m.Content == "1" || m.Content == "2" || m.Content == "3" {
 				u, _ := strconv.Atoi(m.Content)
+				u = u - 1
 				channel <- u
 			} else {
-				channel <- -1 //Signals to cancel the operation
-				if isanime == true {
-					go animeroute(s, m)
-				} else {
-					go x1337route(s, m)
-				}
+				if m.Content[0:1] == "." {
 
+					if m.Content[0:2] == ".a" {
+						m.Content = m.Content[2:]
+						isanime = true
+					} else {
+						m.Content = m.Content[1:]
+					}
+					channel <- -1 //Signals to cancel the operation
+					if isanime == true {
+						go animeroute(s, m)
+					} else {
+						go x1337route(s, m)
+					}
+				} else {
+					requestchannel <- -1
+					return
+				}
 			}
 		}
 	default:
 		//As there is no request operate is if this is the first experience
-		if m.Content == "0" || m.Content == "1" || m.Content == "2" {
-			s.ChannelMessageSend(m.ChannelID, "There is nothing to choose from")
-			return
-		} else {
+		if m.Content[0:1] == "." {
+			if m.Content[0:2] == ".a" {
+				m.Content = m.Content[2:]
+				isanime = true
+			} else {
+				m.Content = m.Content[1:]
+			}
 			if isanime == true {
 				go animeroute(s, m)
 			} else {
 				go x1337route(s, m)
 			}
-
+		} else {
+			return
 		}
 	}
 }
 func x1337route(s *discordgo.Session, m *discordgo.MessageCreate) {
 
-	s.ChannelMessageSend(m.ChannelID, "Ok I will find this thing's magnet link")
+	_, err := s.ChannelMessageSend(m.ChannelID, "Ok I will find this thing's magnet link")
+	if err != nil {
+		return
+	}
 	bow := surf.NewBrowser()
 	fmt.Println("Flag A")
-	err := bow.Open(fmt.Sprintf("https://1337x.to/search/%s/1/", m.Content))
+	_ = bow.Open(fmt.Sprintf("https://1337x.to/search/%s/1/", m.Content))
 	if err != nil {
 		fmt.Println(err)
 		panic(err)
@@ -158,25 +174,60 @@ func x1337route(s *discordgo.Session, m *discordgo.MessageCreate) {
 	selector := "body > main > div > div > div > div.box-info-detail.inner-table > div.table-list-wrap > table > tbody"
 	bow.Dom().Find(selector).Find("tr").Each(func(count int, s *goquery.Selection) {
 		name := s.Find("td.coll-1").Text()
-		results = append(results, name)
+		readd, _ := s.Find("td.coll-1").Find("a.icon").Find("i").Attr("class")
+		readd = readd[9:]
+		if readd == "video-dual-sound" || readd == "divx" || readd == "hd" || readd == "h264" {
+			readd = "Video"
+		}
+		readd = "(" + readd + ")" + ": " + name
+		results = append(results, readd)
 	})
 	fmt.Println(results)
-	for i := 0; i < 3; i++ {
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%v. %s \n", i, results[i])) //TODO add if its a movie tv show etc
+
+	if len(results) > 0 {
+		if len(results) > 3 {
+			for i := 0; i < 3; i++ {
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%v. %s \n", i, results[i]))
+				if err != nil {
+					return
+				}
+			}
+		} else {
+			x := len(results)
+			for i := 0; i < x; i++ {
+				_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%v. %s \n", i, results[i]))
+				if err != nil {
+					return
+				}
+			}
+		}
+	} else {
+		_, err := s.ChannelMessageSend(m.ChannelID, "No results found")
+		if err != nil {
+			return
+		}
+		return
 	}
-	s.ChannelMessageSend(m.ChannelID, "Pick one")
+
+	_, err = s.ChannelMessageSend(m.ChannelID, "Pick one")
+	if err != nil {
+		return
+	}
 
 	requestchannel <- -1 //Sends a request saying that we need a 0,1,2
 	v := <-channel       //Waits until there is a -1,0,1,2
 
 	if v == -1 { //If there has been a new request then we cancel the current process
 		fmt.Println("They made a new process")
-		s.ChannelMessageSend(m.ChannelID, "Ok then")
+		_, err := s.ChannelMessageSend(m.ChannelID, "Ok then")
+		if err != nil {
+			return
+		}
 		return
 	}
 
 	Newselector := fmt.Sprintf("body > main > div > div > div > div.box-info-detail.inner-table > div.table-list-wrap > table > tbody > tr:nth-child(%v) > td.coll-1.name > a:nth-child(2)", v+1)
-	bow.Click(Newselector)
+	_ = bow.Click(Newselector)
 
 	//We are now in the chosen item's info page
 
@@ -187,23 +238,35 @@ func x1337route(s *discordgo.Session, m *discordgo.MessageCreate) {
 		bow.Find(BodyMainDivDivDiv).Find("div.no-top-radius").Find("div.clearfix").Find("ul").Find("li").Each(func(count int, selec *goquery.Selection) {
 			if selec.Find("a").Text() == "Play now (Stream)" {
 				thing2, _ := selec.Find("a").Attr("href")
-				s.ChannelMessageSendEmbed(m.ChannelID, embed.NewGenericEmbed("Your TV/Movie", thing2))
+				_, err := s.ChannelMessageSendEmbed(m.ChannelID, embed.NewGenericEmbed("Your TV/Movie", thing2))
+				if err != nil {
+					return
+				}
 			}
 		})
 	} else {
 		adescriptivename := "body > main > div > div > div"
 		magnetlink, _ := bow.Find(adescriptivename).Find("div.no-top-radius").Find("div.clearfix").Find("ul").Find("li").Find("a").Attr("href")
-		s.ChannelMessageSend(m.ChannelID, "Magnet Link will be sent to your dms.")
+		_, err := s.ChannelMessageSend(m.ChannelID, "Magnet Link will be sent to your dms.")
+		if err != nil {
+			return
+		}
 		chann, err := s.UserChannelCreate(m.Author.ID)
 		if err != nil {
 			fmt.Println("error creating channel:", err)
-			s.ChannelMessageSend(m.ChannelID, "Something went wrong while sending the DM!")
+			_, err := s.ChannelMessageSend(m.ChannelID, "Something went wrong while sending the DM!")
+			if err != nil {
+				return
+			}
 			return
 		}
 		_, err = s.ChannelMessageSend(chann.ID, magnetlink)
 		if err != nil {
 			fmt.Println("error sending DM message:", err)
-			s.ChannelMessageSend(m.ChannelID, "Failed to send you a DM. "+"Did you disable DM in your privacy settings?")
+			_, err := s.ChannelMessageSend(m.ChannelID, "Failed to send you a DM. "+"Did you disable DM in your privacy settings?")
+			if err != nil {
+				return
+			}
 		}
 	}
 
@@ -223,47 +286,189 @@ func animeroute(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	var episode string
+	var episodeflag bool = false
+
 	if strings.Contains(m.Content, "episode") {
-		var episodeindex int = strings.Index(m.Content, "episode")
+		episodeindex := strings.Index(m.Content, "episode")
 		episode = m.Content[episodeindex:]
 		fmt.Println(episode)
+		episodeflag = true
 	}
 
 	//client := &http.Client{}
 
 	type Anime struct {
+		Error   bool
 		Referer string
 	}
 
 	url := fmt.Sprintf("http://localhost:3000/gogoanime/watch/%s", content)
-	//fmt.Println(url)
+	fmt.Println(url)
 	res, err := http.Get(url)
 	if err != nil {
-
-		s.ChannelMessageSend(m.ChannelID, "Message Addison 'Error 1'")
-		fmt.Println(err)
-		panic(err)
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
+		_, err := s.ChannelMessageSend(m.ChannelID, "Tell Addison to go fuck himself")
 		if err != nil {
-
+			return
 		}
-	}(res.Body)
-	body, readErr := ioutil.ReadAll(res.Body)
-	if readErr != nil {
-		fmt.Println("Error 4")
-		log.Fatal(readErr)
-	}
-	var anime Anime
-	jsonErr := json.Unmarshal(body, &anime)
-	if jsonErr != nil {
-		fmt.Println("Error 5")
-		log.Fatal(jsonErr)
-	}
-	_, err = s.ChannelMessageSend(m.ChannelID, anime.Referer)
-	if err != nil {
-		return
-	}
+		fmt.Println(err)
+	} else {
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
 
+			}
+		}(res.Body)
+		body, readErr := ioutil.ReadAll(res.Body)
+		if readErr != nil {
+			fmt.Println("Error 4")
+			log.Fatal(readErr)
+		}
+
+		var anime Anime
+		jsonErr := json.Unmarshal(body, &anime)
+		if jsonErr != nil {
+			fmt.Println("Error 5")
+			log.Fatal(jsonErr)
+		}
+		if anime.Error {
+			results := fetchmal(content)
+
+			var message string
+			for i := 0; i < 3; i++ {
+				if results[i][0] == "" {
+					return
+				}
+				message = message + fmt.Sprintf("%d: %s\n", i+1, results[i][0])
+			}
+			if len(message) == 0 {
+				_, err := s.ChannelMessageSend(m.ChannelID, "There is no anime under that name")
+				if err != nil {
+					log.Fatal(err)
+				}
+				return
+			}
+			_, err = s.ChannelMessageSend(m.ChannelID, message)
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
+			_, err = s.ChannelMessageSend(m.ChannelID, "Pick one")
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
+			fmt.Println("B")
+			requestchannel <- -1 //Sends a request saying that we need a 0,1,2
+			fmt.Println("W")
+			v := <-channel //Waits until there is a -1,0,1,2
+
+			fmt.Println("Channel Check succeeded")
+
+			if v == -1 { //If there has been a new request then we cancel the current process
+				fmt.Println("They made a new process")
+				_, err := s.ChannelMessageSend(m.ChannelID, "Ok then")
+				if err != nil {
+					return
+				}
+				return
+			}
+
+			fmt.Println("Episode flag")
+			if episodeflag {
+				url := fmt.Sprintf("http://localhost:3000/gogoanime/watch/%s %s", results[v][0], episode)
+				fmt.Println(url)
+				var durl string
+				for i := 0; i < len(url); i++ {
+					if url[i] == ' ' {
+						durl = durl + "-"
+					} else {
+						durl = durl + string(url[i])
+					}
+				}
+				fmt.Println(durl)
+				res, err := http.Get(durl)
+				if err != nil {
+					_, err := s.ChannelMessageSend(m.ChannelID, "Tell Addison to go fuck himself")
+					if err != nil {
+						return
+					}
+					fmt.Println(err)
+				} else {
+					defer func(Body io.ReadCloser) {
+						err := Body.Close()
+						if err != nil {
+
+						}
+					}(res.Body)
+					body, readErr := ioutil.ReadAll(res.Body)
+					if readErr != nil {
+						fmt.Println("Error 4")
+						log.Fatal(readErr)
+					}
+					var newanime Anime
+					jsonErr := json.Unmarshal(body, &newanime)
+					if jsonErr != nil {
+						fmt.Println("Error 5")
+						log.Fatal(jsonErr)
+					}
+					_, err = s.ChannelMessageSend(m.ChannelID, newanime.Referer)
+					if err != nil {
+						log.Fatal(err)
+						return
+					}
+				}
+
+			} else {
+				url := fmt.Sprintf("http://localhost:3000/gogoanime/watch/%s ", results[v][0])
+				fmt.Println(url)
+				var durl string
+				for i := 0; i < len(url); i++ {
+					if url[i] == ' ' {
+						durl = durl + "-"
+					} else {
+						durl = durl + string(url[i])
+					}
+				}
+				fmt.Println(durl)
+				res, err := http.Get(durl)
+				if err != nil {
+					_, err := s.ChannelMessageSend(m.ChannelID, "Tell Addison to go fuck himself")
+					if err != nil {
+						return
+					}
+					fmt.Println(err)
+				} else {
+					defer func(Body io.ReadCloser) {
+						err := Body.Close()
+						if err != nil {
+
+						}
+					}(res.Body)
+					body, readErr := ioutil.ReadAll(res.Body)
+					if readErr != nil {
+						fmt.Println("Error 4")
+						log.Fatal(readErr)
+					}
+					var newanime Anime
+					jsonErr := json.Unmarshal(body, &newanime)
+					if jsonErr != nil {
+						fmt.Println("Error 5")
+						log.Fatal(jsonErr)
+					}
+					_, err = s.ChannelMessageSend(m.ChannelID, anime.Referer)
+					if err != nil {
+						log.Fatal(err)
+						return
+					}
+				}
+
+			}
+
+		} else {
+			_, err = s.ChannelMessageSend(m.ChannelID, anime.Referer)
+			if err != nil {
+				return
+			}
+		}
+	}
 }
